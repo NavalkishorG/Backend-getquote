@@ -15,7 +15,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth_supabase_router, prefix="/api", tags=["Auth-Supabase"])
+app.include_router(auth_supabase_router, prefix="/supabase", tags=["Auth-Supabase"])
 
 @app.get("/")
 async def health():
