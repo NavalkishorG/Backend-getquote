@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends, Header
 from pydantic import BaseModel
+from typing import Optional
 import os
 from dotenv import load_dotenv
 from supabase import create_client, Client
@@ -30,6 +31,10 @@ class UserSignup(BaseModel):
     email: str
     password: str
 
+class TokenData(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
 # LOGIN endpoint
 @router.post("/login")
 async def login(user: UserLogin):
@@ -52,6 +57,7 @@ async def login(user: UserLogin):
                 "id": response.user.id,
                 "email": response.user.email,
                 "user_metadata": response.user.user_metadata or {},
+                # Add other user fields as needed
             }
         }
     except Exception as e:
@@ -59,6 +65,28 @@ async def login(user: UserLogin):
         raise HTTPException(status_code=500, detail="Login failed")
 
 # SIGNUP endpoint
+@router.get("/me")
+async def get_current_user(authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid authorization header")
+    
+    token = authorization.split(" ")[1]
+    try:
+        # Verify the token and get the user
+        user = await asyncio.to_thread(
+            lambda: supabase.auth.get_user(token)
+        )
+        if not user.user:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        
+        return {
+            "id": user.user.id,
+            "email": user.user.email,
+            # Add other user fields as needed
+        }
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
 @router.post("/signup")
 async def signup(user: UserSignup):
     try:
