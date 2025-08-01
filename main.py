@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from modules.supabase_auth import router as auth_router
+from modules.supabase_auth import router as auth_supabase_router
 
 app = FastAPI(
     title="GetQuote Extension Auth API",
@@ -15,7 +15,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth_router, prefix="/api", tags=["Auth"])
+app.include_router(auth_supabase_router, prefix="/api", tags=["Auth-Supabase"])
 
 @app.get("/")
 async def health():
