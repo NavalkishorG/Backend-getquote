@@ -1,6 +1,13 @@
+# main.py (no changes needed)
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from modules.supabase_auth import router as auth_supabase_router
+from modules.tender import setup_tender_routes
+import sys
+import asyncio
+
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 app = FastAPI(
     title="GetQuote Extension Auth API",
@@ -9,13 +16,15 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, restrict as needed!
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# Setup routes
 app.include_router(auth_supabase_router, prefix="/supabase", tags=["Auth-Supabase"])
+setup_tender_routes(app)
 
 @app.get("/")
 async def health():
