@@ -1,13 +1,4 @@
-# modules/tender.py
-"""
-Tender-scraping router:
-  • POST /tender/scrape-tenders  → scrape, store JSON, push to Supabase
-  • GET  /tender/health          → basic health-check
-  • GET  /tender/files           → list scraped JSON files
-"""
-
 from __future__ import annotations
-
 import asyncio
 import json
 import logging
@@ -17,12 +8,11 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import Tuple
-
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from playwright.sync_api import sync_playwright
-
 from modules.supabase_auth import supabase  # ← Re-use the global client
+
 
 # ───────────────────────────── logging ──────────────────────────────
 logging.basicConfig(level=logging.INFO)
@@ -102,10 +92,6 @@ def _scrape_sync(url: str) -> Tuple[dict, str]:
             "total_fields": len(data),
         }
 
-        # write JSON locally
-        out_file.write_text(json.dumps(data, ensure_ascii=False, indent=2))
-        logger.info("Saved JSON → %s", out_file.resolve())
-
         # push to Supabase (jsonb column)
         try:
             payload = {
@@ -122,7 +108,6 @@ def _scrape_sync(url: str) -> Tuple[dict, str]:
         ctx.close(); browser.close()
         return data, str(out_file.absolute())
 
-# ─────────────────────────── endpoints ──────────────────────────────
 @router.post("/scrape-tenders", response_model=TenderResponse)
 async def scrape_tender(req: TenderRequest):
     url = req.url.strip()
@@ -144,27 +129,3 @@ async def scrape_tender(req: TenderRequest):
     except Exception as e:
         logger.error("Scraping failed: %s\n%s", e, traceback.format_exc())
         raise HTTPException(500, f"Scraping failed: {type(e).__name__}: {e}")
-
-@router.get("/health")
-async def health():
-    """Lightweight health-check."""
-    try:
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(thread_pool, lambda: sync_playwright().__enter__().stop())
-        return {"status": "healthy", "platform": sys.platform}
-    except Exception as e:
-        raise HTTPException(503, f"Playwright error: {e}")
-
-@router.get("/files")
-async def list_files():
-    data_dir = Path("scraped_data")
-    files = [
-        {"file": f.name, "size": f.stat().st_size, "created": datetime.fromtimestamp(f.stat().st_ctime).isoformat()}
-        for f in data_dir.glob("*.json")
-    ] if data_dir.exists() else []
-    return {"count": len(files), "files": sorted(files, key=lambda x: x["created"], reverse=True)}
-
-# ───────────────────── route-registration helper ────────────────────
-def setup_tender_routes(app):
-    """Call this from main.py to mount the routes under /tender."""
-    app.include_router(router, prefix="/tender", tags=["tender"])

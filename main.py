@@ -2,7 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from modules.supabase_auth import router as auth_supabase_router
-from modules.tender import setup_tender_routes
+from modules.tender import router as scrapper_router
 import sys
 import asyncio
 
@@ -24,7 +24,8 @@ app.add_middleware(
 
 # Setup routes
 app.include_router(auth_supabase_router, prefix="/supabase", tags=["Auth-Supabase"])
-setup_tender_routes(app)
+app.include_router(scrapper_router, prefix="/scrapper", tags=["scrapper"])
+
 
 @app.get("/")
 async def health():

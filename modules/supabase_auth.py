@@ -109,7 +109,3 @@ async def signup(user: UserSignup):
     except Exception as e:
         print("[SIGNUP ERROR]", e)
         raise HTTPException(status_code=500, detail="Signup failed")
-
-
-__all__ = ["supabase"]     # <- add this for adding to supabase client import
-# This allows the supabase client to be imported from this module
