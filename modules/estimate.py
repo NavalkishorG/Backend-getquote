@@ -26,6 +26,8 @@ import re
 
 import os
 
+import time
+
 from concurrent.futures import ThreadPoolExecutor
 
 from datetime import datetime
@@ -72,7 +74,8 @@ class EstimateOneAPIScraper:
         self.email = os.getenv("ESTIMATE_ONE_EMAIL")
         self.password = os.getenv("ESTIMATE_ONE_PASSWORD")
         self.login_url = "https://app.estimateone.com/auth/login"
-        self.session_file = 'estimate_one_session.json'
+        self.session_cache = {}
+        self.session_duration = 1800  # 30 minutes
         
         # Add debugging
         logger.info(f"Loading EstimateOne credentials - Email: {'✓' if self.email else '✗'}, Password: {'✓' if self.password else '✗'}")
@@ -80,9 +83,30 @@ class EstimateOneAPIScraper:
         if not self.email or not self.password:
             raise ValueError("Missing ESTIMATE_ONE_EMAIL and ESTIMATE_ONE_PASSWORD in .env")
 
-    def block_resources(self, route, request):
-        """Block unnecessary resources for faster loading"""
-        if request.resource_type in ["image", "stylesheet", "font", "media"]:
+    def get_cached_session(self):
+        """Check if we have a valid cached session"""
+        current_time = time.time()
+        
+        if 'login_time' in self.session_cache:
+            time_elapsed = current_time - self.session_cache['login_time']
+            if time_elapsed < self.session_duration:
+                logger.info(f"Using cached session ({int(self.session_duration - time_elapsed)}s remaining)")
+                return True
+        return False
+        
+    def cache_session(self):
+        """Cache successful login session"""
+        self.session_cache['login_time'] = time.time()
+        logger.info("Login session cached")
+
+    def block_resources_aggressive(self, route, request):
+        """More aggressive resource blocking for faster loading"""
+        blocked_types = ["image", "stylesheet", "font", "media", "websocket", "manifest"]
+        blocked_domains = ["google-analytics", "facebook.com", "twitter.com", "linkedin.com", "doubleclick.net"]
+        
+        if request.resource_type in blocked_types:
+            route.abort()
+        elif any(domain in request.url for domain in blocked_domains):
             route.abort()
         else:
             route.continue_()
@@ -137,142 +161,111 @@ class EstimateOneAPIScraper:
             logger.error(f"❌ Supabase insertion error for project '{project_data.get('Project Name', 'Unknown')}': {e}")
             return False
 
-    def is_logged_in(self, page: Page) -> bool:
-        """Enhanced login status check with longer timeout and fallbacks"""
+    def is_logged_in_ultra_fast(self, page: Page) -> bool:
+        """Ultra-fast login detection"""
         try:
-            # Wait longer for page to fully load after login
-            try:
-                page.wait_for_load_state("networkidle", timeout=15000)  # Increased from 5000ms
-            except:
-                # If networkidle fails, try domcontentloaded
-                try:
-                    page.wait_for_load_state("domcontentloaded", timeout=10000)
-                except:
-                    logger.warning("Page load state timeout - proceeding with login check")
-                    pass  # Continue anyway
+            # Skip all wait states - check immediately
+            current_url = page.url
             
-            # Check multiple login indicators with individual timeouts
-            logged_in_indicators = [
+            # Immediate URL check (fastest)
+            if "/auth/login" not in current_url:
+                logger.info("Fast login verified - not on login page")
+                return True
+                
+            # Quick element check without waiting
+            login_indicators = [
                 "tbody.styles__tenderRow__b2e48989c7e9117bd552",
-                "a[href*='logout']",
-                ".user-menu",
-                "[data-testid='user-menu']",
-                ".styles__userName",
-                ".styles__projectLink__bb24735487bba39065d8",  # Project links indicate logged in
-                "table[class*='styles__table']"  # Any project table
+                ".styles__projectLink__bb24735487bba39065d8"
+            ]
+            
+            for indicator in login_indicators:
+                if page.query_selector(indicator):  # No timeout - immediate check
+                    logger.info(f"Fast login verified - found {indicator}")
+                    return True
+                    
+            return False
+            
+        except Exception:
+            return False
+
+    def is_logged_in(self, page: Page) -> bool:
+        """Fallback login status check with reduced timeouts"""
+        try:
+            # Quick load state check
+            try:
+                page.wait_for_load_state("domcontentloaded", timeout=3000)
+            except:
+                pass
+            
+            # Check login indicators with faster timeouts
+            logged_in_indicators = [
+                "tbody.styles__tenderRow__b2e48989c7e9117bd552",  # Most reliable
+                ".styles__projectLink__bb24735487bba39065d8"
             ]
             
             for indicator in logged_in_indicators:
                 try:
-                    # Use wait_for_selector with timeout for each indicator
-                    element = page.wait_for_selector(indicator, timeout=3000)
+                    element = page.wait_for_selector(indicator, timeout=1500)
                     if element:
                         logger.info(f"Login verified - found element with selector: {indicator}")
                         return True
                 except:
-                    continue  # Try next indicator
+                    continue
             
-            # Check URL patterns that indicate successful login
+            # Quick URL check
             current_url = page.url
-            logger.info(f"Current URL during login check: {current_url}")
-            
-            # More comprehensive URL pattern checks
-            logged_in_patterns = ["dashboard", "projects", "tenders", "/app", "/main"]
-            login_patterns = ["/auth/login", "/login", "/signin"]
-            
-            # If we're no longer on a login page, likely logged in
-            if not any(pattern in current_url.lower() for pattern in login_patterns):
-                if any(pattern in current_url.lower() for pattern in logged_in_patterns):
-                    logger.info(f"Login verified by URL pattern: {current_url}")
-                    return True
-                # If we're on the main EstimateOne app page, we're likely logged in
-                elif current_url == "https://app.estimateone.com/" or current_url == "https://app.estimateone.com":
-                    logger.info(f"Login verified - on main app page: {current_url}")
-                    return True
-            
-            logger.warning(f"Login verification failed - current URL: {current_url}")
+            if not "/auth/login" in current_url and "estimateone.com" in current_url:
+                logger.info(f"Login verified - on main app page: {current_url}")
+                return True
+                
             return False
             
         except Exception as e:
             logger.error(f"Error checking login status: {e}")
             return False
 
-    def login_to_estimate_one(self, page: Page) -> bool:
-        """Enhanced login with better error reporting and timing"""
+    def login_to_estimate_one_fast(self, page: Page) -> bool:
+        """Ultra-fast login method"""
         try:
-            logger.info("Attempting to login to EstimateOne...")
+            logger.info("Fast login attempt...")
             
-            # Navigate to login page
-            page.goto(self.login_url, timeout=15000, wait_until="domcontentloaded")
-            logger.info(f"Navigated to login page: {page.url}")
+            # Quick navigation
+            page.goto(self.login_url, timeout=8000, wait_until="commit")
             
-            # Wait for page to be fully loaded with longer timeout
+            # Immediate form filling without waiting for load states
             try:
-                page.wait_for_load_state("networkidle", timeout=15000)  # Increased timeout
-            except:
-                logger.warning("Network idle timeout - continuing with login attempt")
+                page.fill("#user_log_in_email", self.email)
+                page.fill("#user_log_in_plainPassword", self.password)
+                page.click("button.btn.btn-block.btn-lg.btn-primary")
+            except Exception as e:
+                logger.warning(f"Form filling error, trying alternative method: {e}")
+                # Fallback method
+                page.wait_for_selector("#user_log_in_email", timeout=5000).fill(self.email)
+                page.wait_for_selector("#user_log_in_plainPassword", timeout=3000).fill(self.password)
+                page.wait_for_selector("button.btn.btn-block.btn-lg.btn-primary", timeout=3000).click()
             
-            # Check if login form is present
-            email_field = page.wait_for_selector("#user_log_in_email", timeout=10000)
-            if not email_field:
-                logger.error("Login form not found - email field missing")
+            # Wait only for URL change (fastest login indicator)
+            try:
+                page.wait_for_function(
+                    "() => !window.location.href.includes('/auth/login')",
+                    timeout=8000
+                )
+                logger.info("Fast login successful")
+                return True
+            except:
+                logger.error("Fast login failed")
                 return False
                 
-            # Fill and submit login form
-            logger.info("Filling login credentials...")
-            email_field.click()
-            email_field.fill(self.email)
-            
-            password_field = page.wait_for_selector("#user_log_in_plainPassword", timeout=5000)
-            password_field.click()
-            password_field.fill(self.password)
-            
-            # Click login button
-            login_button = page.wait_for_selector("button.btn.btn-block.btn-lg.btn-primary", timeout=5000)
-            logger.info("Clicking login button...")
-            login_button.click()
-            
-            # Wait longer for navigation after login
-            logger.info("Waiting for login to complete...")
-            try:
-                # Wait for either successful navigation OR error message with longer timeout
-                page.wait_for_function(
-                    """() => {
-                        return !window.location.href.includes('/auth/login') || 
-                               document.querySelector('.alert, .error, [class*="error"]');
-                    }""",
-                    timeout=20000  # Increased from 15000ms
-                )
-            except:
-                logger.warning("Navigation timeout - checking login status anyway")
-            
-            # Add a small delay to ensure page is settled
-            page.wait_for_timeout(2000)
-            
-            # Check for login errors on the page
-            error_elements = page.query_selector_all('.alert-danger, .error, [class*="error"]')
-            if error_elements:
-                for error_elem in error_elements:
-                    error_text = error_elem.inner_text()
-                    logger.error(f"Login error displayed: {error_text}")
-            
-            # Verify login success
-            login_success = self.is_logged_in(page)
-            logger.info(f"Login attempt result: {'SUCCESS' if login_success else 'FAILED'}")
-            
-            return login_success
-            
         except Exception as e:
-            logger.error(f"Login failed with exception: {e}")
+            logger.error(f"Login error: {e}")
             return False
 
-    # ... (rest of your existing methods remain unchanged)
     def close_popup_fast(self, page: Page):
         """Ultra-fast popup closing with Escape key"""
         try:
             page.keyboard.press("Escape")
             try:
-                page.wait_for_selector(".ReactModal__Overlay--after-open", state="hidden", timeout=500)
+                page.wait_for_selector(".ReactModal__Overlay--after-open", state="hidden", timeout=300)
                 return "success"
             except:
                 page.keyboard.press("Escape")
@@ -295,7 +288,7 @@ class EstimateOneAPIScraper:
             details_section = None
             for selector in detail_selectors:
                 try:
-                    page.wait_for_selector(selector, timeout=1000)
+                    page.wait_for_selector(selector, timeout=800)  # Reduced timeout
                     details_section = page.query_selector(selector)
                     if details_section:
                         break
@@ -445,15 +438,15 @@ class EstimateOneAPIScraper:
                 logger.error(f"Error extracting single project row: {e}")
                 return record
 
-# ───────────────────────── Synchronous Worker ─────────────────────────
+# ───────────────────────── Optimized Synchronous Worker ─────────────────────────
 
 def _scrape_estimate_one_sync(url: str) -> Tuple[int, dict]:
-    """Return (#rows_inserted, preview_record)."""
+    """Optimized scraping with minimal delays"""
     rows_inserted, preview = 0, {}
     scraper = EstimateOneAPIScraper()
 
     with sync_playwright() as p:
-        # Optimized browser launch - headless for API usage
+        # Enhanced browser launch for speed
         browser = p.chromium.launch(
             headless=True,
             args=[
@@ -461,39 +454,59 @@ def _scrape_estimate_one_sync(url: str) -> Tuple[int, dict]:
                 '--disable-dev-shm-usage',
                 '--disable-gpu',
                 '--disable-extensions',
-                '--disable-images',
+                '--disable-plugins',
                 '--memory-pressure-off',
-                '--max_old_space_size=4096',
+                '--max_old_space_size=2048',  # Reduced memory
                 '--disable-background-timer-throttling',
-                '--disable-backgrounding-occluded-windows'
+                '--disable-backgrounding-occluded-windows',
+                '--disable-renderer-backgrounding',
+                '--disable-features=TranslateUI',
+                '--disable-ipc-flooding-protection'
             ]
         )
 
         context = browser.new_context(
-            viewport={'width': 1366, 'height': 768},
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            viewport={'width': 1280, 'height': 720},  # Smaller viewport for speed
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            ignore_https_errors=True  # Skip SSL verification for speed
         )
 
-        # Block unnecessary resources for speed
-        context.route("**/*", scraper.block_resources)
-        context.set_default_timeout(15000)
+        # Aggressive resource blocking for speed
+        context.route("**/*", scraper.block_resources_aggressive)
+        context.set_default_timeout(8000)  # Reduced global timeout
         page = context.new_page()
 
         try:
             logger.info("Opening EstimateOne URL: %s", url)
-            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            
+            # Fast page load - don't wait for full DOM
+            page.goto(url, wait_until="commit", timeout=15000)
+            
+            # Immediate ultra-fast login check
+            if not scraper.is_logged_in_ultra_fast(page):
+                # Check cached session first
+                if not scraper.get_cached_session():
+                    logger.info("Need to login...")
+                    if scraper.login_to_estimate_one_fast(page):
+                        scraper.cache_session()
+                        # Quick navigation back
+                        page.goto(url, wait_until="commit", timeout=10000)
+                    else:
+                        raise RuntimeError("Login failed")
+                else:
+                    # Just refresh if session is cached
+                    page.reload(wait_until="commit", timeout=8000)
+                    # Verify we're still logged in after refresh
+                    if not scraper.is_logged_in(page):
+                        logger.info("Cached session invalid, need fresh login...")
+                        if scraper.login_to_estimate_one_fast(page):
+                            scraper.cache_session()
+                            page.goto(url, wait_until="commit", timeout=10000)
+                        else:
+                            raise RuntimeError("Login failed")
 
-            # Check if login is needed
-            if not scraper.is_logged_in(page):
-                logger.info("Need to login...")
-                if not scraper.login_to_estimate_one(page):
-                    raise RuntimeError("Login failed")
-
-                # Navigate back to target page after login
-                page.goto(url, wait_until="domcontentloaded", timeout=30000)
-
-            # Wait for project rows to load
-            page.wait_for_selector("tbody.styles__tenderRow__b2e48989c7e9117bd552", timeout=10000)
+            # Wait for project rows to load with reduced timeout
+            page.wait_for_selector("tbody.styles__tenderRow__b2e48989c7e9117bd552", timeout=8000)
 
             # Get all project rows
             project_rows = page.query_selector_all("tbody.styles__tenderRow__b2e48989c7e9117bd552")
@@ -520,9 +533,9 @@ def _scrape_estimate_one_sync(url: str) -> Tuple[int, dict]:
                             # Click to open popup
                             project_link.click(force=True)
 
-                            # Wait for popup content
+                            # Wait for popup content with reduced timeout
                             try:
-                                page.wait_for_selector("[class*='project'], .ReactModal__Content, #project-details", timeout=2000)
+                                page.wait_for_selector("[class*='project'], .ReactModal__Content, #project-details", timeout=1500)
                             except:
                                 pass
 
