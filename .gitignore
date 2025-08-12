@@ -1,6 +1,8 @@
 .qodo/
 browser_session/
 old/
+test.py
+
 # Python
 __pycache__/
 *.py[cod]

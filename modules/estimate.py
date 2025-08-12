@@ -726,8 +726,14 @@ def _scrape_projects_by_ids_sync(
     estimate_one_password: str
 ) -> dict:
     """Process multiple project IDs using search functionality with enhanced logging"""
-    logger.info(f"🚀 Starting project scraping for {len(project_ids)} project IDs: {project_ids}")
-    
+    logger.info(f"🔥 BACKEND INTENSIVE LOGGING - FUNCTION STARTED")
+    logger.info(f"🔥 Input project_ids: {project_ids}")
+    logger.info(f"🔥 Input project_ids type: {type(project_ids)}")
+    logger.info(f"🔥 Input project_ids length: {len(project_ids) if project_ids else 'None'}")
+    logger.info(f"🔥 Input url: {url}")
+    logger.info(f"🔥 Input email: {estimate_one_email}")
+    logger.info(f"🔥 Input password length: {len(estimate_one_password) if estimate_one_password else 'None'}")
+
     results = {"processed": 0, "failed": 0, "details": [], "sample_project": {}}
     scraper = EstimateOneAPIScraper(email=estimate_one_email, password=estimate_one_password)
 
@@ -984,6 +990,19 @@ async def scrape_projects_by_ids(
     ENHANCED ENDPOINT: Scrape EstimateOne projects by specific project IDs
     Handles both single and multiple project IDs with detailed logging
     """
+    # ADD THIS INTENSIVE LOGGING AT THE VERY START
+    logger.info(f"🔥 BACKEND ENDPOINT HIT - INTENSIVE LOGGING")
+    logger.info(f"🔥 Raw request data: {req}")
+    logger.info(f"🔥 Request dict: {req.dict()}")
+    logger.info(f"🔥 project_ids: {req.project_ids}")
+    logger.info(f"🔥 project_ids type: {type(req.project_ids)}")
+    logger.info(f"🔥 project_ids length: {len(req.project_ids) if req.project_ids else 'None'}")
+    logger.info(f"🔥 url: {req.url}")
+    logger.info(f"🔥 authorization header: {'Present' if authorization else 'Missing'}")
+    
+    
+    
+    
     # LOG: Request received
     logger.info(f"📥 RECEIVED PROJECT SCRAPE REQUEST")
     logger.info(f"📋 Request data: {req.dict()}")
