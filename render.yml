@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: getquote-backend
+    env: docker  # Changed from python to docker
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: SUPABASE_URL
+        value: https://vxpgnuuuiffzvelhbqen.supabase.co
+      - key: SUPABASE_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ4cGdudXV1aWZmenZlbGhicWVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA2NTgwMTUsImV4cCI6MjA2NjIzNDAxNX0.aNeZHgAfJAMyGhTrjMLZp4AVOh0e95vlHDrj4h-h60c
+      - key: ENCRYPTION_KEY
+        value: RB6vnOWDLc4xsty_b7fCqVqpSkubb4sZesDxexmsYXM=

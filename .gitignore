@@ -2,6 +2,7 @@
 browser_session/
 old/
 test.py
+.dockerignore
 
 # Python
 __pycache__/
